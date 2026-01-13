@@ -6,6 +6,8 @@ import 'package:android_intent_plus/flag.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -46,21 +48,31 @@ class _TimerPageState extends State<TimerPage> {
   final TextEditingController _hoursController = TextEditingController();
   final TextEditingController _minutesController = TextEditingController();
   final TextEditingController _notifyBeforeController = TextEditingController();
+  final TextEditingController _perimeterController = TextEditingController();
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
   TimeOfDay _checkInTime = TimeOfDay.now();
   Timer? _timer;
+  Timer? _locationCheckTimer;
   Duration _timeLeft = Duration.zero;
   double _progress = 0.0;
   bool _isRunning = false;
   DateTime? _exitTime;
+
+  // Geofencing variables
+  Position? _geofenceLocation;
+  double _geofenceRadius = 250.0; // Default 250 meters
+  bool _geofenceEnabled = false;
+  bool _isInsideGeofence = false;
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
     super.initState();
     _initNotifications();
     _loadSavedData();
+    _initGeofencing();
   }
 
   // --- Notification Logic ---
@@ -191,6 +203,242 @@ class _TimerPageState extends State<TimerPage> {
     }
   }
 
+  // --- Geofencing Logic ---
+  Future<void> _initGeofencing() async {
+    if (_geofenceEnabled && _geofenceLocation != null) {
+      await _startLocationMonitoring();
+    }
+  }
+
+  Future<bool> _requestLocationPermissions() async {
+    // Check if location services are enabled
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location services are disabled. Please enable them.',
+            ),
+          ),
+        );
+      }
+      return false;
+    }
+
+    // Request permissions
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permissions are denied.')),
+          );
+        }
+        return false;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location permissions are permanently denied. Please enable them in settings.',
+            ),
+          ),
+        );
+      }
+      return false;
+    }
+
+    // Request background location permission for Android
+    if (Platform.isAndroid) {
+      final backgroundPermission = await Permission.locationAlways.status;
+      if (backgroundPermission.isDenied) {
+        await Permission.locationAlways.request();
+      }
+    }
+
+    return true;
+  }
+
+  Future<void> _setCurrentLocationAsGeofence() async {
+    final hasPermission = await _requestLocationPermissions();
+    if (!hasPermission) return;
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      setState(() {
+        _geofenceLocation = position;
+        _geofenceEnabled = true;
+      });
+
+      await _saveData();
+      await _startLocationMonitoring();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Location set! Geofencing is now active.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error getting location: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error getting location: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _startLocationMonitoring() async {
+    if (!_geofenceEnabled || _geofenceLocation == null) return;
+
+    final hasPermission = await _requestLocationPermissions();
+    if (!hasPermission) {
+      setState(() {
+        _geofenceEnabled = false;
+      });
+      await _saveData();
+      return;
+    }
+
+    // Stop existing monitoring if any
+    await _stopLocationMonitoring();
+
+    // Start location stream
+    _positionStreamSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 10, // Update every 10 meters
+          ),
+        ).listen(
+          (Position position) {
+            _checkGeofenceStatus(position);
+          },
+          onError: (error) {
+            debugPrint('Location stream error: $error');
+          },
+        );
+  }
+
+  Future<void> _stopLocationMonitoring() async {
+    await _positionStreamSubscription?.cancel();
+    _positionStreamSubscription = null;
+  }
+
+  void _checkGeofenceStatus(Position currentPosition) async {
+    if (_geofenceLocation == null) return;
+
+    final distance = Geolocator.distanceBetween(
+      _geofenceLocation!.latitude,
+      _geofenceLocation!.longitude,
+      currentPosition.latitude,
+      currentPosition.longitude,
+    );
+
+    final isInside = distance <= _geofenceRadius;
+
+    // Only trigger notification when entering geofence (not already inside)
+    if (isInside && !_isInsideGeofence) {
+      _isInsideGeofence = true;
+
+      // Check if session is not running before sending notification
+      final prefs = await SharedPreferences.getInstance();
+      final isSessionRunning = prefs.getBool('is_running') ?? false;
+
+      if (!isSessionRunning) {
+        await _sendGeofenceNotification();
+      }
+    } else if (!isInside && _isInsideGeofence) {
+      _isInsideGeofence = false;
+    }
+  }
+
+  Future<void> _sendGeofenceNotification() async {
+    const notificationDetails = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'geofence_channel',
+        'Geofence Alerts',
+        importance: Importance.max,
+        priority: Priority.high,
+        color: Color(0xFF00E5FF),
+      ),
+    );
+
+    await _notificationsPlugin.show(
+      2, // Different ID for geofence notifications
+      'Time to Punch In!',
+      'You\'ve arrived at your location. Tap to open the app and start your session.',
+      notificationDetails,
+    );
+  }
+
+  Future<void> _updatePerimeter() async {
+    final perimeter = double.tryParse(_perimeterController.text);
+    if (perimeter != null && perimeter > 0) {
+      setState(() {
+        _geofenceRadius = perimeter;
+      });
+      await _saveData();
+
+      if (_geofenceEnabled && _geofenceLocation != null) {
+        await _startLocationMonitoring();
+      }
+    }
+  }
+
+  Future<void> _toggleGeofence() async {
+    if (_geofenceLocation == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please set a location first.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _geofenceEnabled = !_geofenceEnabled;
+    });
+
+    await _saveData();
+
+    if (_geofenceEnabled) {
+      await _startLocationMonitoring();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Geofencing enabled.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      await _stopLocationMonitoring();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Geofencing disabled.')));
+      }
+    }
+  }
+
   // --- Persistence Logic ---
   Future<void> _loadSavedData() async {
     final prefs = await SharedPreferences.getInstance();
@@ -201,6 +449,27 @@ class _TimerPageState extends State<TimerPage> {
       final h = prefs.getInt('checkin_hour') ?? TimeOfDay.now().hour;
       final m = prefs.getInt('checkin_minute') ?? TimeOfDay.now().minute;
       _checkInTime = TimeOfDay(hour: h, minute: m);
+
+      // Load geofence settings
+      final lat = prefs.getDouble('geofence_latitude');
+      final lon = prefs.getDouble('geofence_longitude');
+      if (lat != null && lon != null) {
+        _geofenceLocation = Position(
+          latitude: lat,
+          longitude: lon,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0,
+        );
+      }
+      _geofenceRadius = prefs.getDouble('geofence_radius') ?? 250.0;
+      _perimeterController.text = _geofenceRadius.toInt().toString();
+      _geofenceEnabled = prefs.getBool('geofence_enabled') ?? false;
     });
 
     // Restore active session if it exists
@@ -237,6 +506,14 @@ class _TimerPageState extends State<TimerPage> {
     await prefs.setString('notify_before', _notifyBeforeController.text);
     await prefs.setInt('checkin_hour', _checkInTime.hour);
     await prefs.setInt('checkin_minute', _checkInTime.minute);
+
+    // Save geofence settings
+    if (_geofenceLocation != null) {
+      await prefs.setDouble('geofence_latitude', _geofenceLocation!.latitude);
+      await prefs.setDouble('geofence_longitude', _geofenceLocation!.longitude);
+    }
+    await prefs.setDouble('geofence_radius', _geofenceRadius);
+    await prefs.setBool('geofence_enabled', _geofenceEnabled);
   }
 
   Future<void> _saveSession() async {
@@ -491,6 +768,71 @@ class _TimerPageState extends State<TimerPage> {
                   ],
                 ),
 
+                const SizedBox(height: 20),
+
+                // Geofencing Settings Row
+                Row(
+                  children: [
+                    _buildInputCard(
+                      "PERIMETER",
+                      "${_perimeterController.text.isEmpty ? '250' : _perimeterController.text} m",
+                      icon: Icons.location_on,
+                      isTextField: true,
+                      textController: _perimeterController,
+                      hintText: "250",
+                      isNumericOnly: true,
+                      onChanged: (_) => _updatePerimeter(),
+                    ),
+                    const SizedBox(width: 20),
+                    _buildInputCard(
+                      "LOCATION",
+                      _geofenceLocation != null ? "Set" : "Not Set",
+                      icon: Icons.my_location,
+                      onTap: _setCurrentLocationAsGeofence,
+                      showStatus: _geofenceEnabled,
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // Geofencing Toggle Button
+                if (_geofenceLocation != null)
+                  ElevatedButton(
+                    onPressed: _toggleGeofence,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _geofenceEnabled
+                          ? Colors.green.withOpacity(0.8)
+                          : Colors.grey.withOpacity(0.3),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _geofenceEnabled
+                              ? Icons.location_on
+                              : Icons.location_off,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _geofenceEnabled
+                              ? "GEOFENCING ENABLED"
+                              : "ENABLE GEOFENCING",
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 const SizedBox(height: 30),
 
                 // Main Button
@@ -536,6 +878,8 @@ class _TimerPageState extends State<TimerPage> {
     TextEditingController? textController,
     String? hintText,
     bool isNumericOnly = false,
+    Function(String)? onChanged,
+    bool showStatus = false,
   }) {
     final isDisabled = _isRunning && (onTap != null || isTextField);
     return Expanded(
@@ -548,12 +892,29 @@ class _TimerPageState extends State<TimerPage> {
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.05),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(
+                color: showStatus ? Colors.green : Colors.white10,
+                width: showStatus ? 2 : 1,
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(icon, size: 20, color: Colors.cyanAccent),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Icon(icon, size: 20, color: Colors.cyanAccent),
+                    if (showStatus)
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 Text(
                   label,
@@ -576,6 +937,7 @@ class _TimerPageState extends State<TimerPage> {
                         inputFormatters: isNumericOnly
                             ? [FilteringTextInputFormatter.digitsOnly]
                             : null,
+                        onChanged: onChanged,
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -613,9 +975,12 @@ class _TimerPageState extends State<TimerPage> {
   @override
   void dispose() {
     _timer?.cancel();
+    _locationCheckTimer?.cancel();
+    _positionStreamSubscription?.cancel();
     _hoursController.dispose();
     _minutesController.dispose();
     _notifyBeforeController.dispose();
+    _perimeterController.dispose();
     super.dispose();
   }
 }
