@@ -11,12 +11,116 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:workmanager/workmanager.dart';
+
+@pragma('vm:entry-point')
+void callbackDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    try {
+      // Only process geofence check task
+      if (task != 'geofenceCheck') {
+        return Future.value(true);
+      }
+
+      // Check geofence status in background
+      final prefs = await SharedPreferences.getInstance();
+      final geofenceEnabled = prefs.getBool('geofence_enabled') ?? false;
+      final lat = prefs.getDouble('geofence_latitude');
+      final lon = prefs.getDouble('geofence_longitude');
+      final radius = prefs.getDouble('geofence_radius') ?? 250.0;
+      final isSessionRunning = prefs.getBool('is_running') ?? false;
+      final lastNotificationTime = prefs.getInt(
+        'last_geofence_notification_time',
+      );
+
+      // Prevent duplicate notifications within 5 minutes
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (lastNotificationTime != null) {
+        final timeSinceLastNotification = now - lastNotificationTime;
+        if (timeSinceLastNotification < 5 * 60 * 1000) {
+          // 5 minutes
+          return Future.value(true);
+        }
+      }
+
+      if (!geofenceEnabled || lat == null || lon == null || isSessionRunning) {
+        return Future.value(true);
+      }
+
+      // Check location permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.whileInUse &&
+          permission != LocationPermission.always) {
+        return Future.value(true);
+      }
+
+      // Get current position
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      );
+
+      // Calculate distance
+      final distance = Geolocator.distanceBetween(
+        lat,
+        lon,
+        position.latitude,
+        position.longitude,
+      );
+
+      // Check if inside geofence
+      if (distance <= radius) {
+        // Send notification
+        final FlutterLocalNotificationsPlugin notificationsPlugin =
+            FlutterLocalNotificationsPlugin();
+
+        const androidSettings = AndroidInitializationSettings(
+          '@mipmap/ic_launcher',
+        );
+        const iosSettings = DarwinInitializationSettings();
+        await notificationsPlugin.initialize(
+          const InitializationSettings(
+            android: androidSettings,
+            iOS: iosSettings,
+          ),
+        );
+
+        const notificationDetails = NotificationDetails(
+          android: AndroidNotificationDetails(
+            'geofence_channel',
+            'Geofence Alerts',
+            importance: Importance.max,
+            priority: Priority.high,
+            color: Color(0xFF00E5FF),
+          ),
+        );
+
+        await notificationsPlugin.show(
+          2,
+          'Time to Punch In!',
+          'You\'ve arrived at your location. Tap to open the app and start your session.',
+          notificationDetails,
+        );
+
+        // Save notification time to prevent duplicates
+        await prefs.setInt('last_geofence_notification_time', now);
+      }
+
+      return Future.value(true);
+    } catch (e) {
+      debugPrint('Background geofence check error: $e');
+      return Future.value(true);
+    }
+  });
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize Timezones for notifications
   tz.initializeTimeZones();
+
+  // Initialize WorkManager for background location checks
+  await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
   runApp(const TimeTrackerApp());
 }
@@ -317,14 +421,28 @@ class _TimerPageState extends State<TimerPage> {
     // Stop existing monitoring if any
     await _stopLocationMonitoring();
 
-    // Start location stream
+    // Configure location settings for background monitoring
+    LocationSettings locationSettings;
+    if (Platform.isAndroid) {
+      locationSettings = AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10, // Update every 10 meters
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: 'Monitoring location for geofencing',
+          notificationTitle: 'Time Remaining',
+          enableWakeLock: true,
+        ),
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      );
+    }
+
+    // Start location stream (works in foreground and background)
     _positionStreamSubscription =
-        Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 10, // Update every 10 meters
-          ),
-        ).listen(
+        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
           (Position position) {
             _checkGeofenceStatus(position);
           },
@@ -332,11 +450,29 @@ class _TimerPageState extends State<TimerPage> {
             debugPrint('Location stream error: $error');
           },
         );
+
+    // Also register periodic background task for when app is closed
+    // This runs every 15 minutes to check geofence status
+    await Workmanager().registerPeriodicTask(
+      'geofence-check',
+      'geofenceCheck',
+      frequency: const Duration(minutes: 15),
+      constraints: Constraints(
+        networkType: NetworkType.not_required,
+        requiresBatteryNotLow: false,
+        requiresCharging: false,
+        requiresDeviceIdle: false,
+        requiresStorageNotLow: false,
+      ),
+    );
   }
 
   Future<void> _stopLocationMonitoring() async {
     await _positionStreamSubscription?.cancel();
     _positionStreamSubscription = null;
+
+    // Cancel background task
+    await Workmanager().cancelByUniqueName('geofence-check');
   }
 
   void _checkGeofenceStatus(Position currentPosition) async {
@@ -359,8 +495,18 @@ class _TimerPageState extends State<TimerPage> {
       final prefs = await SharedPreferences.getInstance();
       final isSessionRunning = prefs.getBool('is_running') ?? false;
 
-      if (!isSessionRunning) {
+      // Prevent duplicate notifications within 5 minutes
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final lastNotificationTime = prefs.getInt(
+        'last_geofence_notification_time',
+      );
+      final shouldNotify =
+          lastNotificationTime == null ||
+          (now - lastNotificationTime) >= 5 * 60 * 1000; // 5 minutes
+
+      if (!isSessionRunning && shouldNotify) {
         await _sendGeofenceNotification();
+        await prefs.setInt('last_geofence_notification_time', now);
       }
     } else if (!isInside && _isInsideGeofence) {
       _isInsideGeofence = false;
