@@ -458,7 +458,7 @@ class _TimerPageState extends State<TimerPage> {
       'geofenceCheck',
       frequency: const Duration(minutes: 15),
       constraints: Constraints(
-        networkType: NetworkType.not_required,
+        networkType: NetworkType.notRequired,
         requiresBatteryNotLow: false,
         requiresCharging: false,
         requiresDeviceIdle: false,
@@ -783,232 +783,230 @@ class _TimerPageState extends State<TimerPage> {
           ),
         ),
         child: SafeArea(
-          child: Padding(
+          child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 30),
-            child: Column(
-              children: [
-                const SizedBox(height: 40),
-                const Text(
-                  "Shift Timer",
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
+            children: [
+              const SizedBox(height: 40),
+              const Text(
+                "Shift Timer",
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const Text(
+                "Track your remaining time",
+                style: TextStyle(color: Colors.white54),
+              ),
+              const Spacer(),
+              const SizedBox(height: 20),
+              // Visual Countdown Ring
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    height: 280,
+                    width: 280,
+                    child: CircularProgressIndicator(
+                      value: _progress.clamp(0.0, 1.0),
+                      strokeWidth: 15,
+                      strokeCap: StrokeCap.round,
+                      backgroundColor: Colors.white10,
+                      color: const Color(0xFF00E5FF),
+                    ),
                   ),
-                ),
-                const Text(
-                  "Track your remaining time",
-                  style: TextStyle(color: Colors.white54),
-                ),
-                const Spacer(),
-
-                // Visual Countdown Ring
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox(
-                      height: 280,
-                      width: 280,
-                      child: CircularProgressIndicator(
-                        value: _progress.clamp(0.0, 1.0),
-                        strokeWidth: 15,
-                        strokeCap: StrokeCap.round,
-                        backgroundColor: Colors.white10,
-                        color: const Color(0xFF00E5FF),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "${_timeLeft.inHours}:${(_timeLeft.inMinutes % 60).toString().padLeft(2, '0')}:${(_timeLeft.inSeconds % 60).toString().padLeft(2, '0')}",
+                        style: const TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.w200,
+                          fontFamily: 'monospace',
+                        ),
                       ),
-                    ),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          "${_timeLeft.inHours}:${(_timeLeft.inMinutes % 60).toString().padLeft(2, '0')}:${(_timeLeft.inSeconds % 60).toString().padLeft(2, '0')}",
-                          style: const TextStyle(
-                            fontSize: 48,
-                            fontWeight: FontWeight.w200,
-                            fontFamily: 'monospace',
-                          ),
+                      const SizedBox(height: 5),
+                      Text(
+                        _isRunning ? "REMAINING" : "READY",
+                        style: const TextStyle(
+                          color: Colors.cyanAccent,
+                          letterSpacing: 4,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          _isRunning ? "REMAINING" : "READY",
-                          style: const TextStyle(
-                            color: Colors.cyanAccent,
-                            letterSpacing: 4,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        if (_isRunning && _exitTime != null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            "Ends at ${_formatTime(_exitTime!)}",
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-
-                const Spacer(),
-
-                // Settings Cards - Row 1
-                Row(
-                  children: [
-                    _buildInputCard(
-                      "CHECK-IN",
-                      _checkInTime.format(context),
-                      icon: Icons.access_time,
-                      onTap: _isRunning
-                          ? null
-                          : () async {
-                              final picked = await showTimePicker(
-                                context: context,
-                                initialTime: _checkInTime,
-                              );
-                              if (picked != null)
-                                setState(() => _checkInTime = picked);
-                            },
-                    ),
-                    const SizedBox(width: 20),
-                    _buildInputCard(
-                      "HOURS",
-                      "${_hoursController.text.isEmpty ? '8' : _hoursController.text}h",
-                      icon: Icons.timer_outlined,
-                      isTextField: true,
-                      textController: _hoursController,
-                      hintText: "8",
-                      isNumericOnly: true,
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                // Settings Cards - Row 2
-                Row(
-                  children: [
-                    _buildInputCard(
-                      "MINUTES",
-                      "${_minutesController.text.isEmpty ? '0' : _minutesController.text} min",
-                      icon: Icons.timer,
-                      isTextField: true,
-                      textController: _minutesController,
-                      hintText: "0",
-                      isNumericOnly: true,
-                    ),
-                    const SizedBox(width: 20),
-                    _buildInputCard(
-                      "NOTIFY BEFORE",
-                      "${_notifyBeforeController.text.isEmpty ? '0' : _notifyBeforeController.text} min",
-                      icon: Icons.notifications_active,
-                      isTextField: true,
-                      textController: _notifyBeforeController,
-                      hintText: "0",
-                      isNumericOnly: true,
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                // Geofencing Settings Row
-                Row(
-                  children: [
-                    _buildInputCard(
-                      "PERIMETER",
-                      "${_perimeterController.text.isEmpty ? '250' : _perimeterController.text} m",
-                      icon: Icons.location_on,
-                      isTextField: true,
-                      textController: _perimeterController,
-                      hintText: "250",
-                      isNumericOnly: true,
-                      onChanged: (_) => _updatePerimeter(),
-                    ),
-                    const SizedBox(width: 20),
-                    _buildInputCard(
-                      "LOCATION",
-                      _geofenceLocation != null ? "Set" : "Not Set",
-                      icon: Icons.my_location,
-                      onTap: _setCurrentLocationAsGeofence,
-                      showStatus: _geofenceEnabled,
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                // Geofencing Toggle Button
-                if (_geofenceLocation != null)
-                  ElevatedButton(
-                    onPressed: _toggleGeofence,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _geofenceEnabled
-                          ? Colors.green.withOpacity(0.8)
-                          : Colors.grey.withOpacity(0.3),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 50),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
                       ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _geofenceEnabled
-                              ? Icons.location_on
-                              : Icons.location_off,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
+                      if (_isRunning && _exitTime != null) ...[
+                        const SizedBox(height: 8),
                         Text(
-                          _geofenceEnabled
-                              ? "GEOFENCING ENABLED"
-                              : "ENABLE GEOFENCING",
+                          "Ends at ${_formatTime(_exitTime!)}",
                           style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
+                            color: Colors.white54,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
-                    ),
+                    ],
                   ),
+                ],
+              ),
 
-                const SizedBox(height: 30),
+              const SizedBox(height: 20),
 
-                // Main Button
+              // Settings Cards - Row 1
+              Row(
+                children: [
+                  _buildInputCard(
+                    "CHECK-IN",
+                    _checkInTime.format(context),
+                    icon: Icons.access_time,
+                    onTap: _isRunning
+                        ? null
+                        : () async {
+                            final picked = await showTimePicker(
+                              context: context,
+                              initialTime: _checkInTime,
+                            );
+                            if (picked != null)
+                              setState(() => _checkInTime = picked);
+                          },
+                  ),
+                  const SizedBox(width: 20),
+                  _buildInputCard(
+                    "HOURS",
+                    "${_hoursController.text.isEmpty ? '8' : _hoursController.text}h",
+                    icon: Icons.timer_outlined,
+                    isTextField: true,
+                    textController: _hoursController,
+                    hintText: "8",
+                    isNumericOnly: true,
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Settings Cards - Row 2
+              Row(
+                children: [
+                  _buildInputCard(
+                    "MINUTES",
+                    "${_minutesController.text.isEmpty ? '0' : _minutesController.text} min",
+                    icon: Icons.timer,
+                    isTextField: true,
+                    textController: _minutesController,
+                    hintText: "0",
+                    isNumericOnly: true,
+                  ),
+                  const SizedBox(width: 20),
+                  _buildInputCard(
+                    "NOTIFY BEFORE",
+                    "${_notifyBeforeController.text.isEmpty ? '0' : _notifyBeforeController.text} min",
+                    icon: Icons.notifications_active,
+                    isTextField: true,
+                    textController: _notifyBeforeController,
+                    hintText: "0",
+                    isNumericOnly: true,
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Geofencing Settings Row
+              Row(
+                children: [
+                  _buildInputCard(
+                    "PERIMETER",
+                    "${_perimeterController.text.isEmpty ? '250' : _perimeterController.text} m",
+                    icon: Icons.location_on,
+                    isTextField: true,
+                    textController: _perimeterController,
+                    hintText: "250",
+                    isNumericOnly: true,
+                    onChanged: (_) => _updatePerimeter(),
+                  ),
+                  const SizedBox(width: 20),
+                  _buildInputCard(
+                    "LOCATION",
+                    _geofenceLocation != null ? "Set" : "Not Set",
+                    icon: Icons.my_location,
+                    onTap: _setCurrentLocationAsGeofence,
+                    showStatus: _geofenceEnabled,
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Geofencing Toggle Button
+              if (_geofenceLocation != null)
                 ElevatedButton(
-                  onPressed: _startTracking,
+                  onPressed: _toggleGeofence,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _isRunning
-                        ? Colors.red.withOpacity(0.8)
-                        : const Color(0xFF00E5FF),
+                    backgroundColor: _geofenceEnabled
+                        ? Colors.green.withOpacity(0.8)
+                        : Colors.grey.withOpacity(0.3),
                     foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 65),
+                    minimumSize: const Size(double.infinity, 50),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(15),
                     ),
-                    elevation: 10,
-                    shadowColor:
-                        (_isRunning ? Colors.red : const Color(0xFF00E5FF))
-                            .withOpacity(0.4),
                   ),
-                  child: Text(
-                    _isRunning ? "STOP SESSION" : "START SESSION",
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _geofenceEnabled
+                            ? Icons.location_on
+                            : Icons.location_off,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _geofenceEnabled
+                            ? "GEOFENCING ENABLED"
+                            : "ENABLE GEOFENCING",
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 40),
-              ],
-            ),
+
+              const SizedBox(height: 30),
+
+              // Main Button
+              ElevatedButton(
+                onPressed: _startTracking,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isRunning
+                      ? Colors.red.withOpacity(0.8)
+                      : const Color(0xFF00E5FF),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 65),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  elevation: 10,
+                  shadowColor:
+                      (_isRunning ? Colors.red : const Color(0xFF00E5FF))
+                          .withOpacity(0.4),
+                ),
+                child: Text(
+                  _isRunning ? "STOP SESSION" : "START SESSION",
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 40),
+            ],
           ),
         ),
       ),
