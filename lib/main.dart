@@ -799,8 +799,7 @@ class _TimerPageState extends State<TimerPage> {
                 "Track your remaining time",
                 style: TextStyle(color: Colors.white54),
               ),
-              const Spacer(),
-              const SizedBox(height: 20),
+              const SizedBox(height: 40),
               // Visual Countdown Ring
               Stack(
                 alignment: Alignment.center,
