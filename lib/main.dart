@@ -56,7 +56,16 @@ void callbackDispatcher() {
 
       // Get current position
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
+        locationSettings: AndroidSettings(
+          accuracy: LocationAccuracy.best,
+          distanceFilter: 10,
+          foregroundNotificationConfig: const ForegroundNotificationConfig(
+            notificationText: 'Monitoring location for geofencing',
+            notificationTitle: 'Time Remaining',
+            enableWakeLock: true,
+          ),
+        ),
+        desiredAccuracy: LocationAccuracy.best,
       );
 
       // Calculate distance

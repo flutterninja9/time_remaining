@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@android:color/transparent">
+
+    <TextView
+        android:id="@+id/text_time_remaining"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="--:--:--"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:gravity="center_horizontal"
+        android:textColor="@android:color/white" />
+
+    <TextView
+        android:id="@+id/text_end_time"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Ends at --:--"
+        android:textSize="12sp"
+        android:gravity="center_horizontal"
+        android:textColor="@android:color/white" />
+
+    <TextView
+        android:id="@+id/text_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Not running"
+        android:textSize="10sp"
+        android:gravity="center_horizontal"
+        android:textColor="@android:color/darker_gray" />
+
+</LinearLayout>
+
