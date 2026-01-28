@@ -1,17 +1,31 @@
 package com.example.time_remaining
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import android.widget.RemoteViews
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class ShiftTimerWidget : AppWidgetProvider() {
+
+    override fun onEnabled(context: Context) {
+        // First widget instance added – start a repeating alarm to refresh every minute.
+        scheduleMinuteUpdates(context)
+        super.onEnabled(context)
+    }
+
+    override fun onDisabled(context: Context) {
+        // Last widget instance removed – cancel the repeating alarm.
+        cancelMinuteUpdates(context)
+        super.onDisabled(context)
+    }
 
     override fun onUpdate(
         context: Context,
@@ -26,7 +40,7 @@ class ShiftTimerWidget : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
 
-        // Ensure widgets refresh when explicitly requested (e.g. from system)
+        // Ensure widgets refresh when explicitly requested (e.g. from system or alarm).
         if (intent.action == AppWidgetManager.ACTION_APPWIDGET_UPDATE) {
             val manager = AppWidgetManager.getInstance(context)
             val componentName = ComponentName(context, ShiftTimerWidget::class.java)
@@ -106,6 +120,50 @@ class ShiftTimerWidget : AppWidgetProvider() {
         val date = Date(exitTimeMillis)
         val formatter = SimpleDateFormat("hh:mm a", Locale.getDefault())
         return formatter.format(date)
+    }
+
+    private fun scheduleMinuteUpdates(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            ?: return
+
+        val intent = Intent(context, ShiftTimerWidget::class.java).apply {
+            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+        }
+
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
+        val intervalMillis = 60_000L // 1 minute
+        val firstTriggerAt = SystemClock.elapsedRealtime() + intervalMillis
+
+        alarmManager.setInexactRepeating(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            firstTriggerAt,
+            intervalMillis,
+            pendingIntent,
+        )
+    }
+
+    private fun cancelMinuteUpdates(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            ?: return
+
+        val intent = Intent(context, ShiftTimerWidget::class.java).apply {
+            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+        }
+
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
+        alarmManager.cancel(pendingIntent)
     }
 }
 
