@@ -135,24 +135,130 @@ void main() async {
   runApp(const TimeTrackerApp());
 }
 
-class TimeTrackerApp extends StatelessWidget {
+enum AppTheme { defaultDark, focus, highContrast, oledBlack }
+
+class TimeTrackerApp extends StatefulWidget {
   const TimeTrackerApp({super.key});
 
   @override
+  State<TimeTrackerApp> createState() => _TimeTrackerAppState();
+}
+
+class _TimeTrackerAppState extends State<TimeTrackerApp> {
+  AppTheme _currentTheme = AppTheme.defaultDark;
+  bool _compactLayout = false;
+  bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final themeName = prefs.getString('app_theme') ?? 'defaultDark';
+    final compact = prefs.getBool('compact_layout') ?? false;
+
+    setState(() {
+      _currentTheme = AppTheme.values.firstWhere(
+        (t) => t.name == themeName,
+        orElse: () => AppTheme.defaultDark,
+      );
+      _compactLayout = compact;
+      _initialized = true;
+    });
+  }
+
+  Future<void> _updateTheme(AppTheme theme) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('app_theme', theme.name);
+    setState(() => _currentTheme = theme);
+  }
+
+  Future<void> _updateLayout(bool compact) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('compact_layout', compact);
+    setState(() => _compactLayout = compact);
+  }
+
+  ThemeData _buildTheme() {
+    switch (_currentTheme) {
+      case AppTheme.focus:
+        return ThemeData.dark().copyWith(
+          scaffoldBackgroundColor: const Color(0xFF141622),
+          primaryColor: const Color(0xFF64FFDA),
+          colorScheme: const ColorScheme.dark(
+            primary: Color(0xFF64FFDA),
+            secondary: Color(0xFF64FFDA),
+          ),
+        );
+      case AppTheme.highContrast:
+        return ThemeData.dark().copyWith(
+          scaffoldBackgroundColor: Colors.black,
+          primaryColor: Colors.yellowAccent,
+          colorScheme: const ColorScheme.dark(
+            primary: Colors.yellowAccent,
+            secondary: Colors.yellowAccent,
+          ),
+          textTheme: ThemeData.dark().textTheme.apply(
+            bodyColor: Colors.white,
+            displayColor: Colors.white,
+          ),
+        );
+      case AppTheme.oledBlack:
+        return ThemeData.dark().copyWith(
+          scaffoldBackgroundColor: Colors.black,
+          primaryColor: const Color(0xFF00E5FF),
+          colorScheme: const ColorScheme.dark(
+            primary: Color(0xFF00E5FF),
+            secondary: Color(0xFF00E5FF),
+          ),
+        );
+      case AppTheme.defaultDark:
+        return ThemeData.dark().copyWith(
+          scaffoldBackgroundColor: const Color(0xFF0F111A),
+          primaryColor: const Color(0xFF00E5FF),
+        );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (!_initialized) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: _buildTheme(),
+        home: const Scaffold(body: Center(child: CircularProgressIndicator())),
+      );
+    }
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0F111A),
-        primaryColor: const Color(0xFF00E5FF),
+      theme: _buildTheme(),
+      home: TimerPage(
+        compactLayout: _compactLayout,
+        currentTheme: _currentTheme,
+        onThemeChanged: _updateTheme,
+        onLayoutChanged: _updateLayout,
       ),
-      home: const TimerPage(),
     );
   }
 }
 
 class TimerPage extends StatefulWidget {
-  const TimerPage({super.key});
+  const TimerPage({
+    super.key,
+    required this.compactLayout,
+    required this.currentTheme,
+    required this.onThemeChanged,
+    required this.onLayoutChanged,
+  });
+
+  final bool compactLayout;
+  final AppTheme currentTheme;
+  final ValueChanged<AppTheme> onThemeChanged;
+  final ValueChanged<bool> onLayoutChanged;
 
   @override
   State<TimerPage> createState() => _TimerPageState();
@@ -920,6 +1026,11 @@ class _TimerPageState extends State<TimerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isCompact = widget.compactLayout;
+    final topSpacing = isCompact ? 16.0 : 24.0;
+    final titleToRingSpacing = isCompact ? 16.0 : 32.0;
+    final ringSize = isCompact ? 220.0 : 280.0;
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -933,7 +1044,7 @@ class _TimerPageState extends State<TimerPage> {
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 30),
             children: [
-              const SizedBox(height: 24),
+              SizedBox(height: topSpacing),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -954,26 +1065,40 @@ class _TimerPageState extends State<TimerPage> {
                       ),
                     ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.bar_chart_outlined),
-                    color: Colors.cyanAccent,
-                    tooltip: 'View stats',
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const StatsPage()),
-                      );
-                    },
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.palette_outlined),
+                        color: Colors.cyanAccent,
+                        tooltip: 'Theme & layout',
+                        onPressed: () {
+                          _showAppearanceSheet(context);
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.bar_chart_outlined),
+                        color: Colors.cyanAccent,
+                        tooltip: 'View stats',
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const StatsPage(),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
-              const SizedBox(height: 32),
+              SizedBox(height: titleToRingSpacing),
               // Visual Countdown Ring
               Stack(
                 alignment: Alignment.center,
                 children: [
                   SizedBox(
-                    height: 280,
-                    width: 280,
+                    height: ringSize,
+                    width: ringSize,
                     child: CircularProgressIndicator(
                       value: _progress.clamp(0.0, 1.0),
                       strokeWidth: 15,
@@ -1280,6 +1405,87 @@ class _TimerPageState extends State<TimerPage> {
     final period = hour >= 12 ? 'PM' : 'AM';
     final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
     return '${displayHour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
+  }
+
+  void _showAppearanceSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF181A24),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Appearance',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Theme',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  _buildThemeChip('Default', AppTheme.defaultDark),
+                  _buildThemeChip('Focus', AppTheme.focus),
+                  _buildThemeChip('High contrast', AppTheme.highContrast),
+                  _buildThemeChip('OLED black', AppTheme.oledBlack),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Layout',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Compact layout'),
+                  Switch(
+                    value: widget.compactLayout,
+                    activeThumbColor: Colors.cyanAccent,
+                    onChanged: (value) {
+                      widget.onLayoutChanged(value);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildThemeChip(String label, AppTheme theme) {
+    final isSelected = widget.currentTheme == theme;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (_) => widget.onThemeChanged(theme),
+      selectedColor: Colors.cyanAccent.withOpacity(0.2),
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.cyanAccent : Colors.white,
+      ),
+      backgroundColor: Colors.white.withOpacity(0.05),
+    );
   }
 
   @override
