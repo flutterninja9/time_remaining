@@ -1,4 +1,4 @@
-Daily / weekly stats dashboard
+Daily / weekly stats dashboard [x]
 Show total hours worked today, this week, and rolling 7/30 days.
 Simple charts (bar or line) for “hours worked per day” and “time of check‑in”.
 A “streak” indicator (e.g., days you hit your target hours).
