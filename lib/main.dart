@@ -204,6 +204,24 @@ class _TimerPageState extends State<TimerPage> {
     const iosSettings = DarwinInitializationSettings();
     await _notificationsPlugin.initialize(
       const InitializationSettings(android: androidSettings, iOS: iosSettings),
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        final actionId = response.actionId;
+        final payload = response.payload ?? '';
+
+        // Handle "start session now" action from geofence notification
+        if (actionId == 'start_session' || payload == 'start_session') {
+          if (!_isRunning) {
+            _startTracking();
+          }
+          return;
+        }
+
+        // Handle "extend by 30 min" action from warning notification
+        if (actionId == 'extend_30' || payload == 'extend_30') {
+          _extendCurrentSession(const Duration(minutes: 30));
+          return;
+        }
+      },
     );
   }
 
@@ -240,15 +258,26 @@ class _TimerPageState extends State<TimerPage> {
         ? 'Your shift ends in $minutesBefore minute${minutesBefore == 1 ? '' : 's'}. Time to wrap up!'
         : 'You have reached your target hours. Time to head out!';
 
-    final notificationDetails = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'timer_channel',
-        'Shift Tracking',
-        importance: Importance.max,
-        priority: Priority.high,
-        color: Color(0xFF00E5FF),
-      ),
+    final androidDetails = AndroidNotificationDetails(
+      isEarlyWarning ? 'shift_warning_channel' : 'shift_end_channel',
+      isEarlyWarning ? 'Shift Early Warning' : 'Shift End',
+      importance: Importance.max,
+      priority: Priority.high,
+      color: const Color(0xFF00E5FF),
+      // Different channels let users pick different sounds in system settings.
+      actions: isEarlyWarning
+          ? <AndroidNotificationAction>[
+              const AndroidNotificationAction(
+                'extend_30',
+                'Extend by 30 min',
+                showsUserInterface: true,
+                cancelNotification: true,
+              ),
+            ]
+          : null,
     );
+
+    final notificationDetails = NotificationDetails(android: androidDetails);
 
     // Use different notification IDs: 0 for end time, 1 for early warning
     final notificationId = isEarlyWarning ? 1 : 0;
@@ -523,15 +552,23 @@ class _TimerPageState extends State<TimerPage> {
   }
 
   Future<void> _sendGeofenceNotification() async {
-    const notificationDetails = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'geofence_channel',
-        'Geofence Alerts',
-        importance: Importance.max,
-        priority: Priority.high,
-        color: Color(0xFF00E5FF),
-      ),
+    const androidDetails = AndroidNotificationDetails(
+      'geofence_channel',
+      'Geofence Alerts',
+      importance: Importance.max,
+      priority: Priority.high,
+      color: Color(0xFF00E5FF),
+      actions: <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'start_session',
+          'Start session now',
+          showsUserInterface: true,
+          cancelNotification: true,
+        ),
+      ],
     );
+
+    const notificationDetails = NotificationDetails(android: androidDetails);
 
     await _notificationsPlugin.show(
       2, // Different ID for geofence notifications
@@ -553,6 +590,37 @@ class _TimerPageState extends State<TimerPage> {
         await _startLocationMonitoring();
       }
     }
+  }
+
+  // --- Session Helpers for Notification Actions ---
+  void _extendCurrentSession(Duration delta) {
+    if (_exitTime == null || !_isRunning) return;
+
+    final newExitTime = _exitTime!.add(delta);
+    _exitTime = newExitTime;
+    _saveSession();
+
+    // Cancel existing end / warning notifications and reschedule based on new time
+    _notificationsPlugin.cancel(0);
+    _notificationsPlugin.cancel(1);
+
+    final notifyBeforeMinutes = int.tryParse(_notifyBeforeController.text) ?? 0;
+
+    if (notifyBeforeMinutes > 0) {
+      final earlyNotificationTime = newExitTime.subtract(
+        Duration(minutes: notifyBeforeMinutes),
+      );
+      _scheduleNotification(
+        earlyNotificationTime,
+        isEarlyWarning: true,
+        minutesBefore: notifyBeforeMinutes,
+      );
+    }
+
+    _scheduleNotification(newExitTime, isEarlyWarning: false);
+
+    // Refresh timer state with updated exit time
+    _resumeTimer();
   }
 
   Future<void> _toggleGeofence() async {
