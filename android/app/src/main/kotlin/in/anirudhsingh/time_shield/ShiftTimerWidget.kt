@@ -1,4 +1,4 @@
-package com.example.time_remaining
+package `in`.anirudhsingh.time_shield
 
 import android.app.AlarmManager
 import android.app.PendingIntent
