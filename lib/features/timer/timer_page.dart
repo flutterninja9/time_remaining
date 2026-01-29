@@ -51,6 +51,10 @@ class _TimerPageState extends State<TimerPage> {
   DateTime? _exitTime;
   DateTime? _sessionStartTime;
 
+  /// True after we've seen at least one tick with time left (avoids recording
+  /// work history when user started with an already-passed exit time).
+  bool _hadPositiveRemaining = false;
+
   // Geofencing variables
   Position? _geofenceLocation;
   double _geofenceRadius = 250.0; // Default 250 meters
@@ -70,7 +74,8 @@ class _TimerPageState extends State<TimerPage> {
   Future<void> _initNotifications() async {
     final androidImplementation = _notificationsPlugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
 
     // Request notification permission
     await androidImplementation?.requestNotificationsPermission();
@@ -358,13 +363,13 @@ class _TimerPageState extends State<TimerPage> {
     // Start location stream (works in foreground and background)
     _positionStreamSubscription =
         Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (Position position) {
-        _checkGeofenceStatus(position);
-      },
-      onError: (error) {
-        debugPrint('Location stream error: $error');
-      },
-    );
+          (Position position) {
+            _checkGeofenceStatus(position);
+          },
+          onError: (error) {
+            debugPrint('Location stream error: $error');
+          },
+        );
 
     // Also register periodic background task for when app is closed
     // This runs every 15 minutes to check geofence status
@@ -417,7 +422,7 @@ class _TimerPageState extends State<TimerPage> {
       );
       final shouldNotify =
           lastNotificationTime == null ||
-              (now - lastNotificationTime) >= 5 * 60 * 1000; // 5 minutes
+          (now - lastNotificationTime) >= 5 * 60 * 1000; // 5 minutes
 
       if (!isSessionRunning && shouldNotify) {
         await _sendGeofenceNotification();
@@ -517,8 +522,8 @@ class _TimerPageState extends State<TimerPage> {
     final existingJson = prefs.getString('daily_totals');
     Map<String, dynamic> decoded =
         existingJson != null && existingJson.isNotEmpty
-            ? jsonDecode(existingJson) as Map<String, dynamic>
-            : <String, dynamic>{};
+        ? jsonDecode(existingJson) as Map<String, dynamic>
+        : <String, dynamic>{};
 
     final currentMinutes = (decoded[dateKey] as int?) ?? 0;
     decoded[dateKey] = currentMinutes + workedMinutes;
@@ -529,8 +534,8 @@ class _TimerPageState extends State<TimerPage> {
     final checkinJson = prefs.getString('daily_first_checkin');
     Map<String, dynamic> decodedCheckin =
         checkinJson != null && checkinJson.isNotEmpty
-            ? jsonDecode(checkinJson) as Map<String, dynamic>
-            : <String, dynamic>{};
+        ? jsonDecode(checkinJson) as Map<String, dynamic>
+        : <String, dynamic>{};
 
     decodedCheckin.putIfAbsent(
       dateKey,
@@ -702,6 +707,16 @@ class _TimerPageState extends State<TimerPage> {
 
     final now = DateTime.now();
     final targetMinutes = _getDurationInMinutes();
+    if (targetMinutes <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Enter a positive shift length (hours or minutes).'),
+          ),
+        );
+      }
+      return;
+    }
     final checkInDateTime = DateTime(
       now.year,
       now.month,
@@ -710,10 +725,23 @@ class _TimerPageState extends State<TimerPage> {
       _checkInTime.minute,
     );
     final exitTime = checkInDateTime.add(Duration(minutes: targetMinutes));
+    if (!exitTime.isAfter(now)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Shift end time has already passed. Set a later check-in or shorter duration.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     final sessionStart = exitTime.subtract(Duration(minutes: targetMinutes));
 
     _sessionStartTime = sessionStart;
     _exitTime = exitTime;
+    _hadPositiveRemaining = false;
     _isRunning = true;
     _saveSession();
 
@@ -783,10 +811,15 @@ class _TimerPageState extends State<TimerPage> {
         _progress = 1.0;
         _isRunning = false;
         _timer?.cancel();
-        final start = _sessionStartTime ?? _exitTime!;
-        _recordCompletedSession(start, _exitTime!);
+        // Only record work history if the timer actually ran (had positive time
+        // at some point). Avoids adding hours when user started with past exit.
+        if (_hadPositiveRemaining) {
+          final start = _sessionStartTime ?? _exitTime!;
+          _recordCompletedSession(start, _exitTime!);
+        }
         _clearSession();
       } else {
+        _hadPositiveRemaining = true;
         _timeLeft = remaining;
         _progress = 1.0 - (remaining.inSeconds / totalDurationSeconds);
       }
@@ -1269,4 +1302,3 @@ class _TimerPageState extends State<TimerPage> {
     super.dispose();
   }
 }
-
