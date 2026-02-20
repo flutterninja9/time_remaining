@@ -1,4 +1,4 @@
-package `in`.anirudhsingh.time_shield
+package `in`.bloomsoft.time_shield
 
 import io.flutter.embedding.android.FlutterActivity
 

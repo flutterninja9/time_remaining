@@ -854,7 +854,7 @@ class _TimerPageState extends State<TimerPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "Shift Timer",
+                        "Time Shield",
                         style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.w800,

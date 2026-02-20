@@ -107,4 +107,4 @@ flutter_launcher_icons:
 package_rename_config:
   android:
     app_name: "Time Shield"
-    package_name: "in.anirudhsingh.time_shield"
+    package_name: "in.bloomsoft.time_shield"
