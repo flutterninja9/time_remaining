@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:workmanager/workmanager.dart';
@@ -12,7 +13,7 @@ void main() async {
   tz.initializeTimeZones();
 
   // Initialize WorkManager for background location checks
-  await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
+  await Workmanager().initialize(callbackDispatcher, isInDebugMode: kDebugMode);
 
   runApp(const TimeTrackerApp());
 }
