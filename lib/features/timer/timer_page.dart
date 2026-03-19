@@ -13,21 +13,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:workmanager/workmanager.dart';
 
-import '../../app_theme.dart';
 import '../stats/stats_page.dart';
 
 class TimerPage extends StatefulWidget {
   const TimerPage({
     super.key,
     required this.compactLayout,
-    required this.currentTheme,
-    required this.onThemeChanged,
     required this.onLayoutChanged,
   });
 
   final bool compactLayout;
-  final AppTheme currentTheme;
-  final ValueChanged<AppTheme> onThemeChanged;
   final ValueChanged<bool> onLayoutChanged;
 
   @override
@@ -51,13 +46,11 @@ class _TimerPageState extends State<TimerPage> {
   DateTime? _exitTime;
   DateTime? _sessionStartTime;
 
-  /// True after we've seen at least one tick with time left (avoids recording
-  /// work history when user started with an already-passed exit time).
   bool _hadPositiveRemaining = false;
 
   // Geofencing variables
   Position? _geofenceLocation;
-  double _geofenceRadius = 250.0; // Default 250 meters
+  double _geofenceRadius = 250.0;
   bool _geofenceEnabled = false;
   bool _isInsideGeofence = false;
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -77,7 +70,6 @@ class _TimerPageState extends State<TimerPage> {
           AndroidFlutterLocalNotificationsPlugin
         >();
 
-    // Request notification permission
     await androidImplementation?.requestNotificationsPermission();
 
     const androidSettings = AndroidInitializationSettings(
@@ -90,15 +82,11 @@ class _TimerPageState extends State<TimerPage> {
         final actionId = response.actionId;
         final payload = response.payload ?? '';
 
-        // Handle "start session now" action from geofence notification
         if (actionId == 'start_session' || payload == 'start_session') {
-          if (!_isRunning) {
-            _startTracking();
-          }
+          if (!_isRunning) _startTracking();
           return;
         }
 
-        // Handle "extend by 30 min" action from warning notification
         if (actionId == 'extend_30' || payload == 'extend_30') {
           _extendCurrentSession(const Duration(minutes: 30));
           return;
@@ -109,7 +97,6 @@ class _TimerPageState extends State<TimerPage> {
 
   Future<void> _requestExactAlarmPermission() async {
     if (!Platform.isAndroid) return;
-
     try {
       final intent = AndroidIntent(
         action: 'android.settings.REQUEST_SCHEDULE_EXACT_ALARM',
@@ -121,7 +108,6 @@ class _TimerPageState extends State<TimerPage> {
     }
   }
 
-  // Get total duration in minutes from hours and minutes inputs
   int _getDurationInMinutes() {
     final hours = int.tryParse(_hoursController.text) ?? 0;
     final minutes = int.tryParse(_minutesController.text) ?? 0;
@@ -145,8 +131,6 @@ class _TimerPageState extends State<TimerPage> {
       isEarlyWarning ? 'Shift Early Warning' : 'Shift End',
       importance: Importance.max,
       priority: Priority.high,
-      color: const Color(0xFF00E5FF),
-      // Different channels let users pick different sounds in system settings.
       actions: isEarlyWarning
           ? <AndroidNotificationAction>[
               const AndroidNotificationAction(
@@ -160,11 +144,8 @@ class _TimerPageState extends State<TimerPage> {
     );
 
     final notificationDetails = NotificationDetails(android: androidDetails);
-
-    // Use different notification IDs: 0 for end time, 1 for early warning
     final notificationId = isEarlyWarning ? 1 : 0;
 
-    // Try to schedule with exact alarms first (most accurate)
     try {
       await _notificationsPlugin.zonedSchedule(
         notificationId,
@@ -175,12 +156,8 @@ class _TimerPageState extends State<TimerPage> {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       );
     } on PlatformException catch (e) {
-      // If exact alarms are not permitted, fall back to inexact alarms
       if (e.code == 'exact_alarms_not_permitted') {
-        // Try to request the permission (opens system settings)
         _requestExactAlarmPermission();
-
-        // Fall back to inexact alarms for now
         try {
           await _notificationsPlugin.zonedSchedule(
             notificationId,
@@ -191,12 +168,9 @@ class _TimerPageState extends State<TimerPage> {
             androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
           );
         } catch (fallbackError) {
-          debugPrint(
-            'Failed to schedule notification (inexact): $fallbackError',
-          );
+          debugPrint('Failed to schedule notification (inexact): $fallbackError');
         }
       } else {
-        // For other errors, try inexact as fallback
         try {
           await _notificationsPlugin.zonedSchedule(
             notificationId,
@@ -211,7 +185,6 @@ class _TimerPageState extends State<TimerPage> {
         }
       }
     } catch (e) {
-      // Catch any other exceptions and try inexact as fallback
       try {
         await _notificationsPlugin.zonedSchedule(
           notificationId,
@@ -235,29 +208,31 @@ class _TimerPageState extends State<TimerPage> {
   }
 
   Future<bool> _requestLocationPermissions() async {
-    // Check if location services are enabled
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Location services are disabled. Please enable them.',
-            ),
+          SnackBar(
+            content: const Text('Location services are disabled. Please enable them.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
       return false;
     }
 
-    // Request permissions
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location permissions are denied.')),
+            SnackBar(
+              content: const Text('Location permissions are denied.'),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
           );
         }
         return false;
@@ -267,17 +242,18 @@ class _TimerPageState extends State<TimerPage> {
     if (permission == LocationPermission.deniedForever) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
+          SnackBar(
+            content: const Text(
               'Location permissions are permanently denied. Please enable them in settings.',
             ),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
       return false;
     }
 
-    // Request background location permission for Android
     if (Platform.isAndroid) {
       final backgroundPermission = await Permission.locationAlways.status;
       if (backgroundPermission.isDenied) {
@@ -307,9 +283,10 @@ class _TimerPageState extends State<TimerPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Location set! Geofencing is now active.'),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: const Text('Location set! Geofencing is now active.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
@@ -319,7 +296,8 @@ class _TimerPageState extends State<TimerPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error getting location: $e'),
-            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
@@ -331,22 +309,18 @@ class _TimerPageState extends State<TimerPage> {
 
     final hasPermission = await _requestLocationPermissions();
     if (!hasPermission) {
-      setState(() {
-        _geofenceEnabled = false;
-      });
+      setState(() => _geofenceEnabled = false);
       await _saveData();
       return;
     }
 
-    // Stop existing monitoring if any
     await _stopLocationMonitoring();
 
-    // Configure location settings for background monitoring
     LocationSettings locationSettings;
     if (Platform.isAndroid) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // Update every 10 meters
+        distanceFilter: 10,
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationText: 'Monitoring location for geofencing',
           notificationTitle: 'Time Remaining',
@@ -360,19 +334,13 @@ class _TimerPageState extends State<TimerPage> {
       );
     }
 
-    // Start location stream (works in foreground and background)
-    _positionStreamSubscription =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-          (Position position) {
-            _checkGeofenceStatus(position);
-          },
-          onError: (error) {
-            debugPrint('Location stream error: $error');
-          },
-        );
+    _positionStreamSubscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen(
+      (Position position) => _checkGeofenceStatus(position),
+      onError: (error) => debugPrint('Location stream error: $error'),
+    );
 
-    // Also register periodic background task for when app is closed
-    // This runs every 15 minutes to check geofence status
     await Workmanager().registerPeriodicTask(
       'geofence-check',
       'geofenceCheck',
@@ -390,8 +358,6 @@ class _TimerPageState extends State<TimerPage> {
   Future<void> _stopLocationMonitoring() async {
     await _positionStreamSubscription?.cancel();
     _positionStreamSubscription = null;
-
-    // Cancel background task
     await Workmanager().cancelByUniqueName('geofence-check');
   }
 
@@ -407,22 +373,17 @@ class _TimerPageState extends State<TimerPage> {
 
     final isInside = distance <= _geofenceRadius;
 
-    // Only trigger notification when entering geofence (not already inside)
     if (isInside && !_isInsideGeofence) {
       _isInsideGeofence = true;
 
-      // Check if session is not running before sending notification
       final prefs = await SharedPreferences.getInstance();
       final isSessionRunning = prefs.getBool('is_running') ?? false;
 
-      // Prevent duplicate notifications within 5 minutes
       final now = DateTime.now().millisecondsSinceEpoch;
-      final lastNotificationTime = prefs.getInt(
-        'last_geofence_notification_time',
-      );
+      final lastNotificationTime = prefs.getInt('last_geofence_notification_time');
       final shouldNotify =
           lastNotificationTime == null ||
-          (now - lastNotificationTime) >= 5 * 60 * 1000; // 5 minutes
+          (now - lastNotificationTime) >= 5 * 60 * 1000;
 
       if (!isSessionRunning && shouldNotify) {
         await _sendGeofenceNotification();
@@ -439,7 +400,6 @@ class _TimerPageState extends State<TimerPage> {
       'Geofence Alerts',
       importance: Importance.max,
       priority: Priority.high,
-      color: Color(0xFF00E5FF),
       actions: <AndroidNotificationAction>[
         AndroidNotificationAction(
           'start_session',
@@ -453,7 +413,7 @@ class _TimerPageState extends State<TimerPage> {
     const notificationDetails = NotificationDetails(android: androidDetails);
 
     await _notificationsPlugin.show(
-      2, // Different ID for geofence notifications
+      2,
       'Time to Punch In!',
       'You\'ve arrived at your location. Tap to open the app and start your session.',
       notificationDetails,
@@ -463,18 +423,15 @@ class _TimerPageState extends State<TimerPage> {
   Future<void> _updatePerimeter() async {
     final perimeter = double.tryParse(_perimeterController.text);
     if (perimeter != null && perimeter > 0) {
-      setState(() {
-        _geofenceRadius = perimeter;
-      });
+      setState(() => _geofenceRadius = perimeter);
       await _saveData();
-
       if (_geofenceEnabled && _geofenceLocation != null) {
         await _startLocationMonitoring();
       }
     }
   }
 
-  // --- Session Helpers for Notification Actions ---
+  // --- Session Helpers ---
   void _extendCurrentSession(Duration delta) {
     if (_exitTime == null || !_isRunning) return;
 
@@ -482,26 +439,20 @@ class _TimerPageState extends State<TimerPage> {
     _exitTime = newExitTime;
     _saveSession();
 
-    // Cancel existing end / warning notifications and reschedule based on new time
     _notificationsPlugin.cancel(0);
     _notificationsPlugin.cancel(1);
 
     final notifyBeforeMinutes = int.tryParse(_notifyBeforeController.text) ?? 0;
 
     if (notifyBeforeMinutes > 0) {
-      final earlyNotificationTime = newExitTime.subtract(
-        Duration(minutes: notifyBeforeMinutes),
-      );
       _scheduleNotification(
-        earlyNotificationTime,
+        newExitTime.subtract(Duration(minutes: notifyBeforeMinutes)),
         isEarlyWarning: true,
         minutesBefore: notifyBeforeMinutes,
       );
     }
 
     _scheduleNotification(newExitTime, isEarlyWarning: false);
-
-    // Refresh timer state with updated exit time
     _resumeTimer();
   }
 
@@ -515,10 +466,8 @@ class _TimerPageState extends State<TimerPage> {
     if (workedMinutes <= 0) return;
 
     final dateKey = _formatDateKey(sessionStart);
-
     final prefs = await SharedPreferences.getInstance();
 
-    // Daily totals in minutes, stored as JSON map: { "yyyy-MM-dd": minutes }
     final existingJson = prefs.getString('daily_totals');
     Map<String, dynamic> decoded =
         existingJson != null && existingJson.isNotEmpty
@@ -527,21 +476,15 @@ class _TimerPageState extends State<TimerPage> {
 
     final currentMinutes = (decoded[dateKey] as int?) ?? 0;
     decoded[dateKey] = currentMinutes + workedMinutes;
-
     await prefs.setString('daily_totals', jsonEncode(decoded));
 
-    // Also store first check-in time per day for "time of check-in" stats
     final checkinJson = prefs.getString('daily_first_checkin');
     Map<String, dynamic> decodedCheckin =
         checkinJson != null && checkinJson.isNotEmpty
         ? jsonDecode(checkinJson) as Map<String, dynamic>
         : <String, dynamic>{};
 
-    decodedCheckin.putIfAbsent(
-      dateKey,
-      () => sessionStart.millisecondsSinceEpoch,
-    );
-
+    decodedCheckin.putIfAbsent(dateKey, () => sessionStart.millisecondsSinceEpoch);
     await prefs.setString('daily_first_checkin', jsonEncode(decodedCheckin));
   }
 
@@ -556,53 +499,55 @@ class _TimerPageState extends State<TimerPage> {
     if (_geofenceLocation == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please set a location first.'),
-            backgroundColor: Colors.orange,
+          SnackBar(
+            content: const Text('Please set a location first.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
       return;
     }
 
-    setState(() {
-      _geofenceEnabled = !_geofenceEnabled;
-    });
-
+    setState(() => _geofenceEnabled = !_geofenceEnabled);
     await _saveData();
 
     if (_geofenceEnabled) {
       await _startLocationMonitoring();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Geofencing enabled.'),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: const Text('Geofencing enabled.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
     } else {
       await _stopLocationMonitoring();
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Geofencing disabled.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Geofencing disabled.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
       }
     }
   }
 
-  // --- Persistence Logic ---
+  // --- Persistence ---
   Future<void> _loadSavedData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _hoursController.text = prefs.getString('target_hours') ?? "8";
-      _minutesController.text = prefs.getString('target_minutes') ?? "0";
-      _notifyBeforeController.text = prefs.getString('notify_before') ?? "0";
+      _hoursController.text = prefs.getString('target_hours') ?? '8';
+      _minutesController.text = prefs.getString('target_minutes') ?? '0';
+      _notifyBeforeController.text = prefs.getString('notify_before') ?? '0';
       final h = prefs.getInt('checkin_hour') ?? TimeOfDay.now().hour;
       final m = prefs.getInt('checkin_minute') ?? TimeOfDay.now().minute;
       _checkInTime = TimeOfDay(hour: h, minute: m);
 
-      // Load geofence settings
       final lat = prefs.getDouble('geofence_latitude');
       final lon = prefs.getDouble('geofence_longitude');
       if (lat != null && lon != null) {
@@ -624,7 +569,6 @@ class _TimerPageState extends State<TimerPage> {
       _geofenceEnabled = prefs.getBool('geofence_enabled') ?? false;
     });
 
-    // Restore active session if it exists
     await _restoreSession();
   }
 
@@ -638,20 +582,16 @@ class _TimerPageState extends State<TimerPage> {
       final savedExitTime = DateTime.fromMillisecondsSinceEpoch(exitTimeMillis);
       final now = DateTime.now();
 
-      // Check if session is still valid (not expired)
       if (savedExitTime.isAfter(now)) {
         setState(() {
           _exitTime = savedExitTime;
           _isRunning = true;
           if (startTimeMillis != null) {
-            _sessionStartTime = DateTime.fromMillisecondsSinceEpoch(
-              startTimeMillis,
-            );
+            _sessionStartTime = DateTime.fromMillisecondsSinceEpoch(startTimeMillis);
           }
         });
         _resumeTimer();
       } else {
-        // Session expired, clear it
         await _clearSession();
       }
     }
@@ -665,7 +605,6 @@ class _TimerPageState extends State<TimerPage> {
     await prefs.setInt('checkin_hour', _checkInTime.hour);
     await prefs.setInt('checkin_minute', _checkInTime.minute);
 
-    // Save geofence settings
     if (_geofenceLocation != null) {
       await prefs.setDouble('geofence_latitude', _geofenceLocation!.latitude);
       await prefs.setDouble('geofence_longitude', _geofenceLocation!.longitude);
@@ -695,7 +634,7 @@ class _TimerPageState extends State<TimerPage> {
     await prefs.setBool('is_running', false);
   }
 
-  // --- Timer Calculation ---
+  // --- Timer ---
   void _startTracking() {
     if (_isRunning) {
       _stopTracking();
@@ -710,13 +649,16 @@ class _TimerPageState extends State<TimerPage> {
     if (targetMinutes <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Enter a positive shift length (hours or minutes).'),
+          SnackBar(
+            content: const Text('Enter a positive shift length (hours or minutes).'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
       return;
     }
+
     final checkInDateTime = DateTime(
       now.year,
       now.month,
@@ -725,44 +667,38 @@ class _TimerPageState extends State<TimerPage> {
       _checkInTime.minute,
     );
     final exitTime = checkInDateTime.add(Duration(minutes: targetMinutes));
+
     if (!exitTime.isAfter(now)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
+          SnackBar(
+            content: const Text(
               'Shift end time has already passed. Set a later check-in or shorter duration.',
             ),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
       return;
     }
-    final sessionStart = exitTime.subtract(Duration(minutes: targetMinutes));
 
-    _sessionStartTime = sessionStart;
+    _sessionStartTime = exitTime.subtract(Duration(minutes: targetMinutes));
     _exitTime = exitTime;
     _hadPositiveRemaining = false;
     _isRunning = true;
     _saveSession();
 
-    // Schedule notification with notify before offset
     final notifyBeforeMinutes = int.tryParse(_notifyBeforeController.text) ?? 0;
-
     if (notifyBeforeMinutes > 0) {
-      // Schedule early warning notification
-      final earlyNotificationTime = exitTime.subtract(
-        Duration(minutes: notifyBeforeMinutes),
-      );
       _scheduleNotification(
-        earlyNotificationTime,
+        exitTime.subtract(Duration(minutes: notifyBeforeMinutes)),
         isEarlyWarning: true,
         minutesBefore: notifyBeforeMinutes,
       );
     }
 
-    // Always schedule end time notification
     _scheduleNotification(exitTime, isEarlyWarning: false);
-
     _resumeTimer();
   }
 
@@ -770,7 +706,6 @@ class _TimerPageState extends State<TimerPage> {
     _timer?.cancel();
     final now = DateTime.now();
     final start = _sessionStartTime ?? now;
-    // Record completed session before clearing state
     _recordCompletedSession(start, now);
     setState(() {
       _isRunning = false;
@@ -779,7 +714,6 @@ class _TimerPageState extends State<TimerPage> {
       _progress = 0.0;
     });
     _clearSession();
-    // Cancel both scheduled notifications
     _notificationsPlugin.cancel(0);
     _notificationsPlugin.cancel(1);
   }
@@ -790,10 +724,8 @@ class _TimerPageState extends State<TimerPage> {
     final targetMinutes = _getDurationInMinutes();
     final totalDurationSeconds = targetMinutes * 60.0;
 
-    // Update UI immediately
     _updateTimerState(targetMinutes, totalDurationSeconds);
 
-    // Then update every second
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _updateTimerState(targetMinutes, totalDurationSeconds);
     });
@@ -802,8 +734,7 @@ class _TimerPageState extends State<TimerPage> {
   void _updateTimerState(int targetMinutes, double totalDurationSeconds) {
     if (_exitTime == null) return;
 
-    final currentTime = DateTime.now();
-    final remaining = _exitTime!.difference(currentTime);
+    final remaining = _exitTime!.difference(DateTime.now());
 
     setState(() {
       if (remaining.isNegative) {
@@ -811,8 +742,6 @@ class _TimerPageState extends State<TimerPage> {
         _progress = 1.0;
         _isRunning = false;
         _timer?.cancel();
-        // Only record work history if the timer actually ran (had positive time
-        // at some point). Avoids adding hours when user started with past exit.
         if (_hadPositiveRemaining) {
           final start = _sessionStartTime ?? _exitTime!;
           _recordCompletedSession(start, _exitTime!);
@@ -826,468 +755,12 @@ class _TimerPageState extends State<TimerPage> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isCompact = widget.compactLayout;
-    final topSpacing = isCompact ? 16.0 : 24.0;
-    final titleToRingSpacing = isCompact ? 16.0 : 32.0;
-    final ringSize = isCompact ? 220.0 : 280.0;
-
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF1A1C2C), Color(0xFF0F111A)],
-          ),
-        ),
-        child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 30),
-            children: [
-              SizedBox(height: topSpacing),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Time Shield",
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                      Text(
-                        "Track your remaining time",
-                        style: TextStyle(color: Colors.white54),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.palette_outlined),
-                        color: Colors.cyanAccent,
-                        tooltip: 'Theme & layout',
-                        onPressed: () {
-                          _showAppearanceSheet(context);
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.bar_chart_outlined),
-                        color: Colors.cyanAccent,
-                        tooltip: 'View stats',
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const StatsPage(),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              SizedBox(height: titleToRingSpacing),
-              // Visual Countdown Ring
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    height: ringSize,
-                    width: ringSize,
-                    child: CircularProgressIndicator(
-                      value: _progress.clamp(0.0, 1.0),
-                      strokeWidth: 15,
-                      strokeCap: StrokeCap.round,
-                      backgroundColor: Colors.white10,
-                      color: const Color(0xFF00E5FF),
-                    ),
-                  ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        "${_timeLeft.inHours}:${(_timeLeft.inMinutes % 60).toString().padLeft(2, '0')}:${(_timeLeft.inSeconds % 60).toString().padLeft(2, '0')}",
-                        style: const TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.w200,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        _isRunning ? "REMAINING" : "READY",
-                        style: const TextStyle(
-                          color: Colors.cyanAccent,
-                          letterSpacing: 4,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      if (_isRunning && _exitTime != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          "Ends at ${_formatTime(_exitTime!)}",
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 20),
-
-              // Settings Cards - Row 1
-              Row(
-                children: [
-                  _buildInputCard(
-                    "CHECK-IN",
-                    _checkInTime.format(context),
-                    icon: Icons.access_time,
-                    onTap: _isRunning
-                        ? null
-                        : () async {
-                            final picked = await showTimePicker(
-                              context: context,
-                              initialTime: _checkInTime,
-                            );
-                            if (picked != null)
-                              setState(() => _checkInTime = picked);
-                          },
-                  ),
-                  const SizedBox(width: 20),
-                  _buildInputCard(
-                    "HOURS",
-                    "${_hoursController.text.isEmpty ? '8' : _hoursController.text}h",
-                    icon: Icons.timer_outlined,
-                    isTextField: true,
-                    textController: _hoursController,
-                    hintText: "8",
-                    isNumericOnly: true,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 20),
-
-              // Settings Cards - Row 2
-              Row(
-                children: [
-                  _buildInputCard(
-                    "MINUTES",
-                    "${_minutesController.text.isEmpty ? '0' : _minutesController.text} min",
-                    icon: Icons.timer,
-                    isTextField: true,
-                    textController: _minutesController,
-                    hintText: "0",
-                    isNumericOnly: true,
-                  ),
-                  const SizedBox(width: 20),
-                  _buildInputCard(
-                    "NOTIFY BEFORE",
-                    "${_notifyBeforeController.text.isEmpty ? '0' : _notifyBeforeController.text} min",
-                    icon: Icons.notifications_active,
-                    isTextField: true,
-                    textController: _notifyBeforeController,
-                    hintText: "0",
-                    isNumericOnly: true,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 20),
-
-              // Geofencing Settings Row
-              Row(
-                children: [
-                  _buildInputCard(
-                    "PERIMETER",
-                    "${_perimeterController.text.isEmpty ? '250' : _perimeterController.text} m",
-                    icon: Icons.location_on,
-                    isTextField: true,
-                    textController: _perimeterController,
-                    hintText: "250",
-                    isNumericOnly: true,
-                    onChanged: (_) => _updatePerimeter(),
-                  ),
-                  const SizedBox(width: 20),
-                  _buildInputCard(
-                    "LOCATION",
-                    _geofenceLocation != null ? "Set" : "Not Set",
-                    icon: Icons.my_location,
-                    onTap: _setCurrentLocationAsGeofence,
-                    showStatus: _geofenceEnabled,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 20),
-
-              // Geofencing Toggle Button
-              if (_geofenceLocation != null)
-                ElevatedButton(
-                  onPressed: _toggleGeofence,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _geofenceEnabled
-                        ? Colors.green.withOpacity(0.8)
-                        : Colors.grey.withOpacity(0.3),
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        _geofenceEnabled
-                            ? Icons.location_on
-                            : Icons.location_off,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _geofenceEnabled
-                            ? "GEOFENCING ENABLED"
-                            : "ENABLE GEOFENCING",
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              const SizedBox(height: 30),
-
-              // Main Button
-              ElevatedButton(
-                onPressed: _startTracking,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isRunning
-                      ? Colors.red.withOpacity(0.8)
-                      : const Color(0xFF00E5FF),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 65),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  elevation: 10,
-                  shadowColor:
-                      (_isRunning ? Colors.red : const Color(0xFF00E5FF))
-                          .withOpacity(0.4),
-                ),
-                child: Text(
-                  _isRunning ? "STOP SESSION" : "START SESSION",
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 40),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInputCard(
-    String label,
-    String value, {
-    required IconData icon,
-    VoidCallback? onTap,
-    bool isTextField = false,
-    TextEditingController? textController,
-    String? hintText,
-    bool isNumericOnly = false,
-    Function(String)? onChanged,
-    bool showStatus = false,
-  }) {
-    final isDisabled = _isRunning && (onTap != null || isTextField);
-    return Expanded(
-      child: GestureDetector(
-        onTap: isDisabled ? null : onTap,
-        child: Opacity(
-          opacity: isDisabled ? 0.5 : 1.0,
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: showStatus ? Colors.green : Colors.white10,
-                width: showStatus ? 2 : 1,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Icon(icon, size: 20, color: Colors.cyanAccent),
-                    if (showStatus)
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white54,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                isTextField
-                    ? TextField(
-                        controller: textController,
-                        enabled: !_isRunning,
-                        keyboardType: isNumericOnly
-                            ? TextInputType.number
-                            : const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
-                        inputFormatters: isNumericOnly
-                            ? [FilteringTextInputFormatter.digitsOnly]
-                            : null,
-                        onChanged: onChanged,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          border: InputBorder.none,
-                          hintText: hintText ?? "0.0",
-                          hintStyle: const TextStyle(color: Colors.white38),
-                        ),
-                      )
-                    : Text(
-                        value,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   String _formatTime(DateTime dateTime) {
     final hour = dateTime.hour;
     final minute = dateTime.minute;
     final period = hour >= 12 ? 'PM' : 'AM';
     final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
     return '${displayHour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
-  }
-
-  void _showAppearanceSheet(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF181A24),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Appearance',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Theme',
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  _buildThemeChip('Default', AppTheme.defaultDark),
-                  _buildThemeChip('Focus', AppTheme.focus),
-                  _buildThemeChip('High contrast', AppTheme.highContrast),
-                  _buildThemeChip('OLED black', AppTheme.oledBlack),
-                ],
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Layout',
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Compact layout'),
-                  Switch(
-                    value: widget.compactLayout,
-                    activeThumbColor: Colors.cyanAccent,
-                    onChanged: (value) {
-                      widget.onLayoutChanged(value);
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildThemeChip(String label, AppTheme theme) {
-    final isSelected = widget.currentTheme == theme;
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (_) => widget.onThemeChanged(theme),
-      selectedColor: Colors.cyanAccent.withOpacity(0.2),
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.cyanAccent : Colors.white,
-      ),
-      backgroundColor: Colors.white.withOpacity(0.05),
-    );
   }
 
   @override
@@ -1300,5 +773,461 @@ class _TimerPageState extends State<TimerPage> {
     _notifyBeforeController.dispose();
     _perimeterController.dispose();
     super.dispose();
+  }
+
+  // ── Build ────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isCompact = widget.compactLayout;
+    final ringSize = isCompact ? 200.0 : 256.0;
+
+    return Scaffold(
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(32, 24, 32, 48),
+          children: [
+            // ── Header ───────────────────────────────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Time Shield',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    Text(
+                      'Track your remaining time',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withValues(alpha: 0.45),
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.bar_chart_outlined),
+                      color: cs.onSurface.withValues(alpha: 0.6),
+                      tooltip: 'View stats',
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const StatsPage()),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.tune_outlined),
+                      color: cs.onSurface.withValues(alpha: 0.6),
+                      tooltip: 'Preferences',
+                      onPressed: () => _showPreferencesSheet(context),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            SizedBox(height: isCompact ? 24.0 : 36.0),
+
+            // ── Circular ring ────────────────────────────────────────────
+            Center(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    height: ringSize,
+                    width: ringSize,
+                    child: CircularProgressIndicator(
+                      value: _progress.clamp(0.0, 1.0),
+                      strokeWidth: 3,
+                      strokeCap: StrokeCap.round,
+                      backgroundColor: cs.primary.withValues(alpha: 0.12),
+                      valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+                    ),
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${_timeLeft.inHours}:${(_timeLeft.inMinutes % 60).toString().padLeft(2, '0')}:${(_timeLeft.inSeconds % 60).toString().padLeft(2, '0')}',
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          fontWeight: FontWeight.w200,
+                          letterSpacing: -1,
+                          height: 1.0,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _isRunning ? 'REMAINING' : 'READY',
+                        style: TextStyle(
+                          color: cs.onSurface.withValues(alpha: 0.45),
+                          letterSpacing: 3,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (_isRunning && _exitTime != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          '→ ${_formatTime(_exitTime!)}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: cs.onSurface.withValues(alpha: 0.4),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 36),
+
+            // ── Session Settings ─────────────────────────────────────────
+            _sectionHeader(context, Icons.timer_outlined, 'SESSION SETTINGS'),
+            const SizedBox(height: 16),
+
+            _tappableRow(
+              context,
+              label: 'Check-in',
+              value: _checkInTime.format(context),
+              enabled: !_isRunning,
+              onTap: () async {
+                final picked = await showTimePicker(
+                  context: context,
+                  initialTime: _checkInTime,
+                );
+                if (picked != null) setState(() => _checkInTime = picked);
+              },
+            ),
+            _divider(context),
+
+            _editableRow(
+              context,
+              label: 'Hours',
+              controller: _hoursController,
+              suffix: 'h',
+              enabled: !_isRunning,
+            ),
+            _divider(context),
+
+            _editableRow(
+              context,
+              label: 'Minutes',
+              controller: _minutesController,
+              suffix: 'min',
+              enabled: !_isRunning,
+            ),
+            _divider(context),
+
+            _editableRow(
+              context,
+              label: 'Notify before',
+              controller: _notifyBeforeController,
+              suffix: 'min',
+              enabled: !_isRunning,
+            ),
+
+            const SizedBox(height: 36),
+
+            // ── Geofencing ───────────────────────────────────────────────
+            _sectionHeader(context, Icons.location_on_outlined, 'GEOFENCING'),
+            const SizedBox(height: 16),
+
+            _editableRow(
+              context,
+              label: 'Perimeter',
+              controller: _perimeterController,
+              suffix: 'm',
+              enabled: !_isRunning,
+              onChanged: (_) => _updatePerimeter(),
+            ),
+            _divider(context),
+
+            _tappableRow(
+              context,
+              label: 'Location',
+              value: _geofenceLocation != null ? 'Set' : 'Not set',
+              onTap: _setCurrentLocationAsGeofence,
+              trailing: _geofenceLocation != null
+                  ? Icon(
+                      Icons.check_circle_outline,
+                      size: 16,
+                      color: cs.onSurface.withValues(alpha: 0.5),
+                    )
+                  : null,
+            ),
+
+            if (_geofenceLocation != null) ...[
+              _divider(context),
+              _switchRow(
+                context,
+                label: 'Active',
+                value: _geofenceEnabled,
+                onChanged: (_) => _toggleGeofence(),
+              ),
+            ],
+
+            const SizedBox(height: 36),
+
+            // ── CTA ──────────────────────────────────────────────────────
+            ElevatedButton(
+              onPressed: _startTracking,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _isRunning ? cs.error : cs.primary,
+                foregroundColor: _isRunning ? cs.onError : cs.onPrimary,
+                minimumSize: const Size(double.infinity, 56),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: Text(
+                _isRunning ? 'STOP SESSION' : 'START SESSION',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  letterSpacing: 1.0,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── UI Helpers ───────────────────────────────────────────────────────────
+
+  Widget _sectionHeader(BuildContext context, IconData icon, String label) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: cs.primary),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: cs.primary,
+            letterSpacing: 2.0,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _divider(BuildContext context) {
+    return Divider(
+      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+      thickness: 1,
+      height: 1,
+    );
+  }
+
+  Widget _tappableRow(
+    BuildContext context, {
+    required String label,
+    required String value,
+    VoidCallback? onTap,
+    bool enabled = true,
+    Widget? trailing,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      behavior: HitTestBehavior.opaque,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.45,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withValues(alpha: 0.45),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: cs.onSurface.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              trailing ??
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: cs.onSurface.withValues(alpha: 0.25),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _editableRow(
+    BuildContext context, {
+    required String label,
+    required TextEditingController controller,
+    required String suffix,
+    bool enabled = true,
+    Function(String)? onChanged,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.45,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withValues(alpha: 0.45),
+              ),
+            ),
+            const SizedBox(height: 4),
+            TextField(
+              controller: controller,
+              enabled: enabled,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              onChanged: onChanged,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: cs.onSurface.withValues(alpha: 0.85),
+              ),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+                border: InputBorder.none,
+                hintText: '0',
+                hintStyle: TextStyle(
+                  color: cs.onSurface.withValues(alpha: 0.25),
+                ),
+                suffix: Text(
+                  suffix,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withValues(alpha: 0.4),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _switchRow(
+    BuildContext context, {
+    required String label,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: cs.onSurface.withValues(alpha: 0.85),
+              ),
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeTrackColor: cs.primary,
+            activeThumbColor: cs.onPrimary,
+            inactiveTrackColor: cs.onSurface.withValues(alpha: 0.15),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPreferencesSheet(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(32, 28, 32, 48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.tune_outlined, size: 14, color: cs.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'PREFERENCES',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: cs.primary,
+                    letterSpacing: 2.0,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Compact layout',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: cs.onSurface.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ),
+                  Switch(
+                    value: widget.compactLayout,
+                    onChanged: widget.onLayoutChanged,
+                    activeTrackColor: cs.primary,
+                    activeThumbColor: cs.onPrimary,
+                    inactiveTrackColor: cs.onSurface.withValues(alpha: 0.15),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

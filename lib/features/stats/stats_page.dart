@@ -74,18 +74,15 @@ class _StatsPageState extends State<StatsPage> {
       final day = now.subtract(Duration(days: i));
       final key = _formatStatsDateKey(day);
       final minutes = dailyTotals[key] ?? 0;
-      if (i < 7) {
-        last7 += minutes;
-      }
+      if (i < 7) last7 += minutes;
       last30 += minutes;
     }
 
-    // Compute streak: consecutive days (up to 30) meeting target
     final targetHours =
         int.tryParse(prefs.getString('target_hours') ?? '8') ?? 8;
     final targetMinutes =
         targetHours * 60 +
-            (int.tryParse(prefs.getString('target_minutes') ?? '0') ?? 0);
+        (int.tryParse(prefs.getString('target_minutes') ?? '0') ?? 0);
 
     int streak = 0;
     for (int i = 0; i < 30; i++) {
@@ -95,10 +92,7 @@ class _StatsPageState extends State<StatsPage> {
       if (minutes >= targetMinutes && targetMinutes > 0) {
         streak += 1;
       } else {
-        if (i == 0) {
-          // If today doesn't meet the target, streak is 0.
-          streak = 0;
-        }
+        if (i == 0) streak = 0;
         break;
       }
     }
@@ -114,120 +108,128 @@ class _StatsPageState extends State<StatsPage> {
     });
   }
 
+  String _formatMinutes(int minutes) {
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return '${h}h ${m}m';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Stats'),
-        backgroundColor: const Color(0xFF0F111A),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
       ),
-      backgroundColor: const Color(0xFF0F111A),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(32, 0, 32, 48),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _buildSummaryCard(title: 'Today', minutes: _todayMinutes),
-                      _buildSummaryCard(
-                        title: 'Last 7 days',
-                        minutes: _last7DaysMinutes,
-                      ),
-                      _buildSummaryCard(
-                        title: 'Last 30 days',
-                        minutes: _last30DaysMinutes,
-                      ),
-                    ],
+                  Text(
+                    'Stats',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                    ),
                   ),
-                  const SizedBox(height: 24),
-                  _buildStreakCard(),
-                  const SizedBox(height: 24),
-                  _buildBarChart(),
-                  const SizedBox(height: 24),
-                  _buildCheckInTimes(),
+                  const SizedBox(height: 36),
+
+                  // ── Overview ─────────────────────────────────────────
+                  _sectionHeader(context, Icons.bar_chart_outlined, 'OVERVIEW'),
+                  const SizedBox(height: 16),
+                  _statRow(context, 'Today', _formatMinutes(_todayMinutes)),
+                  _divider(context),
+                  _statRow(context, 'Last 7 days', _formatMinutes(_last7DaysMinutes)),
+                  _divider(context),
+                  _statRow(context, 'Last 30 days', _formatMinutes(_last30DaysMinutes)),
+                  _divider(context),
+                  _statRow(context, 'Streak', '$_streakDays days'),
+
+                  const SizedBox(height: 36),
+
+                  // ── Bar chart ────────────────────────────────────────
+                  _sectionHeader(context, Icons.calendar_today_outlined, 'LAST 7 DAYS'),
+                  const SizedBox(height: 16),
+                  _buildBarChart(context),
+
+                  const SizedBox(height: 36),
+
+                  // ── Check-in times ───────────────────────────────────
+                  _sectionHeader(context, Icons.access_time_outlined, 'CHECK-IN TIMES'),
+                  const SizedBox(height: 16),
+                  _buildCheckInTimes(context),
                 ],
               ),
             ),
     );
   }
 
-  Widget _buildSummaryCard({required String title, required int minutes}) {
-    final hours = minutes ~/ 60;
-    final mins = minutes % 60;
-    final text = '${hours}h ${mins}m';
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(16),
+  // ── UI Helpers ───────────────────────────────────────────────────────────
+
+  Widget _sectionHeader(BuildContext context, IconData icon, String label) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: cs.primary),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: cs.primary,
+            letterSpacing: 2.0,
+            fontWeight: FontWeight.w800,
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white54,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              text,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 
-  Widget _buildStreakCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(16),
-      ),
+  Widget _divider(BuildContext context) {
+    return Divider(
+      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+      thickness: 1,
+      height: 1,
+    );
+  }
+
+  Widget _statRow(BuildContext context, String label, String value) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Streak',
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withValues(alpha: 0.45),
               ),
-              const SizedBox(height: 8),
-              Text(
-                '$_streakDays days',
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
+            ),
           ),
-          const Icon(Icons.local_fire_department, color: Colors.orangeAccent),
+          Text(
+            value,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: cs.onSurface.withValues(alpha: 0.85),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildBarChart() {
+  Widget _buildBarChart(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final now = DateTime.now();
     final last7Keys = <String>[];
     for (int i = 6; i >= 0; i--) {
@@ -235,77 +237,52 @@ class _StatsPageState extends State<StatsPage> {
     }
 
     final values = last7Keys.map((k) => _dailyTotals[k] ?? 0).toList();
-    final maxMinutes = (values.fold<int>(
-      0,
-      (a, b) => a > b ? a : b,
-    ))
-        .clamp(0, 12 * 60);
+    final maxMinutes = values.fold<int>(0, (a, b) => a > b ? a : b).clamp(0, 12 * 60);
     final safeMax = maxMinutes == 0 ? 60 : maxMinutes;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Last 7 days',
-          style: TextStyle(
-            color: Colors.white54,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 160,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              for (int i = 0; i < last7Keys.length; i++)
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 3),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.bottomCenter,
-                            child: Container(
-                              width: 16,
-                              height: 120 * (values[i] / safeMax),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                gradient: const LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [
-                                    Color(0xFF00E5FF),
-                                    Color(0xFF00B0FF),
-                                  ],
-                                ),
-                              ),
-                            ),
+    return SizedBox(
+      height: 120,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (int i = 0; i < last7Keys.length; i++)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          width: 4,
+                          height: (80.0 * (values[i] / safeMax)).clamp(0.0, 80.0),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(2),
+                            color: cs.primary,
                           ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _dayLabelFromKey(last7Keys[i]),
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _dayLabelFromKey(last7Keys[i]),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: cs.onSurface.withValues(alpha: 0.4),
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ),
-            ],
-          ),
-        ),
-      ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
-  Widget _buildCheckInTimes() {
+  Widget _buildCheckInTimes(BuildContext context) {
     final now = DateTime.now();
     final last7 = <String>[];
     for (int i = 6; i >= 0; i--) {
@@ -313,31 +290,27 @@ class _StatsPageState extends State<StatsPage> {
     }
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'First check-in time (last 7 days)',
-          style: TextStyle(
-            color: Colors.white54,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
+        for (int i = 0; i < last7.length; i++) ...[
+          _checkInRow(
+            context,
+            dateLabel: _dayLabelFromKey(last7[i]),
+            millis: _dailyFirstCheckin[last7[i]],
           ),
-        ),
-        const SizedBox(height: 12),
-        Column(
-          children: [
-            for (final key in last7)
-              _buildCheckInRow(
-                dateLabel: _dayLabelFromKey(key),
-                millis: _dailyFirstCheckin[key],
-              ),
-          ],
-        ),
+          if (i < last7.length - 1) _divider(context),
+        ],
       ],
     );
   }
 
-  Widget _buildCheckInRow({required String dateLabel, int? millis}) {
+  Widget _checkInRow(
+    BuildContext context, {
+    required String dateLabel,
+    int? millis,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     String value;
     if (millis == null) {
       value = '--';
@@ -347,24 +320,35 @@ class _StatsPageState extends State<StatsPage> {
       final minute = date.minute;
       final period = hour >= 12 ? 'PM' : 'AM';
       final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
-      value =
-          '${displayHour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
+      value = '${displayHour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(dateLabel, style: const TextStyle(color: Colors.white70)),
-          Text(value, style: const TextStyle(color: Colors.white)),
+          Expanded(
+            child: Text(
+              dateLabel,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withValues(alpha: 0.45),
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: cs.onSurface.withValues(alpha: 0.85),
+            ),
+          ),
         ],
       ),
     );
   }
 
+  // ── Data Helpers ─────────────────────────────────────────────────────────
+
   String _dayLabelFromKey(String key) {
-    // key is yyyy-MM-dd
     final parts = key.split('-');
     if (parts.length != 3) return key;
     final year = int.tryParse(parts[0]) ?? DateTime.now().year;
@@ -382,4 +366,3 @@ class _StatsPageState extends State<StatsPage> {
     return '${d.year}-$mm-$dd';
   }
 }
-

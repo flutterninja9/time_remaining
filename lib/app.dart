@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'app_theme.dart';
 import 'features/timer/timer_page.dart';
 
 class TimeTrackerApp extends StatefulWidget {
@@ -12,7 +11,6 @@ class TimeTrackerApp extends StatefulWidget {
 }
 
 class _TimeTrackerAppState extends State<TimeTrackerApp> {
-  AppTheme _currentTheme = AppTheme.defaultDark;
   bool _compactLayout = false;
   bool _initialized = false;
 
@@ -24,23 +22,11 @@ class _TimeTrackerAppState extends State<TimeTrackerApp> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    final themeName = prefs.getString('app_theme') ?? 'defaultDark';
     final compact = prefs.getBool('compact_layout') ?? false;
-
     setState(() {
-      _currentTheme = AppTheme.values.firstWhere(
-        (t) => t.name == themeName,
-        orElse: () => AppTheme.defaultDark,
-      );
       _compactLayout = compact;
       _initialized = true;
     });
-  }
-
-  Future<void> _updateTheme(AppTheme theme) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('app_theme', theme.name);
-    setState(() => _currentTheme = theme);
   }
 
   Future<void> _updateLayout(bool compact) async {
@@ -49,45 +35,53 @@ class _TimeTrackerAppState extends State<TimeTrackerApp> {
     setState(() => _compactLayout = compact);
   }
 
-  ThemeData _buildTheme() {
-    switch (_currentTheme) {
-      case AppTheme.focus:
-        return ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: const Color(0xFF141622),
-          primaryColor: const Color(0xFF64FFDA),
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF64FFDA),
-            secondary: Color(0xFF64FFDA),
-          ),
-        );
-      case AppTheme.highContrast:
-        return ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: Colors.black,
-          primaryColor: Colors.yellowAccent,
-          colorScheme: const ColorScheme.dark(
-            primary: Colors.yellowAccent,
-            secondary: Colors.yellowAccent,
-          ),
-          textTheme: ThemeData.dark().textTheme.apply(
-            bodyColor: Colors.white,
-            displayColor: Colors.white,
-          ),
-        );
-      case AppTheme.oledBlack:
-        return ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: Colors.black,
-          primaryColor: const Color(0xFF00E5FF),
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF00E5FF),
-            secondary: Color(0xFF00E5FF),
-          ),
-        );
-      case AppTheme.defaultDark:
-        return ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: const Color(0xFF0F111A),
-          primaryColor: const Color(0xFF00E5FF),
-        );
-    }
+  static ThemeData _lightTheme() {
+    const primary = Color(0xFF09090B);
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: const ColorScheme.light(
+        primary: primary,
+        onPrimary: Colors.white,
+        primaryContainer: Color(0xFFF4F4F5),
+        onPrimaryContainer: primary,
+        surface: Colors.white,
+        onSurface: primary,
+        error: Color(0xFFDC2626),
+        onError: Colors.white,
+      ),
+      scaffoldBackgroundColor: Colors.white,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        foregroundColor: primary,
+      ),
+    );
+  }
+
+  static ThemeData _darkTheme() {
+    const primary = Color(0xFFFAFAFA);
+    const surface = Color(0xFF09090B);
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: const ColorScheme.dark(
+        primary: primary,
+        onPrimary: surface,
+        primaryContainer: Color(0xFF27272A),
+        onPrimaryContainer: primary,
+        surface: surface,
+        onSurface: primary,
+        error: Color(0xFFEF4444),
+        onError: surface,
+      ),
+      scaffoldBackgroundColor: surface,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        foregroundColor: primary,
+      ),
+    );
   }
 
   @override
@@ -95,21 +89,22 @@ class _TimeTrackerAppState extends State<TimeTrackerApp> {
     if (!_initialized) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: _buildTheme(),
+        theme: _lightTheme(),
+        darkTheme: _darkTheme(),
+        themeMode: ThemeMode.system,
         home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: _buildTheme(),
+      theme: _lightTheme(),
+      darkTheme: _darkTheme(),
+      themeMode: ThemeMode.system,
       home: TimerPage(
         compactLayout: _compactLayout,
-        currentTheme: _currentTheme,
-        onThemeChanged: _updateTheme,
         onLayoutChanged: _updateLayout,
       ),
     );
   }
 }
-
