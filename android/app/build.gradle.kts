@@ -19,7 +19,6 @@ android {
     namespace = "in.bloomsoft.time_shield"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
-    val appVersionCode = (System.getenv()["NEW_BUILD_NUMBER"] ?: "1")?.toInt()
 
     compileOptions {
         // Flag to enable support for the new language APIs
@@ -42,7 +41,7 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = appVersionCode
+        versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
     }
